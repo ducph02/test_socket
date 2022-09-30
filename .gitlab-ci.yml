@@ -1,0 +1,63 @@
+image: node:16.13.2
+
+stages:
+  - lint
+  - develop
+  - beta
+
+# eslint:
+#   stage: lint
+#   script:
+#     # Install eslint
+#     - |
+#       npm install eslint \
+#       eslint-config-airbnb \
+#       eslint-config-prettier \
+#       eslint-plugin-flowtype \
+#       eslint-plugin-import \
+#       eslint-plugin-jsx-a11y \
+#       eslint-plugin-prettier \
+#       eslint-plugin-react
+#     # Run eslint
+#     - npm run lint
+
+develop:
+  stage: develop
+  environment: development
+  only:
+    - develop
+  before_script:
+    - apt-get update -qq
+    - apt-get install -qq git
+    # Setup SSH deploy keys
+    - "which ssh-agent || ( apt-get install -qq openssh-client )"
+    - eval $(ssh-agent -s)
+    - ssh-add <(echo "$SSH_PRIVATE_KEY")
+    - mkdir -p ~/.ssh
+    - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'  
+  script:
+    - env > .env && awk '!/^(SSH_PRIVATE_KEY|SSH_USER|SSH_HOST|CI_|CI|FF|GITLAB|PWD|pwd|HOME|HOSTNAME|PATH|SHLVL|NODE_VERSION|OLDPWD YARN_VERSION|_)/' .env > tmp.env && mv tmp.env .env
+    - ssh $SSH_USER@$SSH_HOST "cd /home/ubuntu/game-service && rm .env || true && git pull origin develop && npm install"
+    - scp .env $SSH_USER@$SSH_HOST:/home/ubuntu/game-service
+    - ssh $SSH_USER@$SSH_HOST "pm2 restart 'game_service_dev'"
+
+beta:
+  stage: beta
+  environment: beta
+  only:
+    - production/v0.5.0
+  before_script:
+    - apt-get update -qq
+    - apt-get install -qq git
+    # Setup SSH deploy keys
+    - "which ssh-agent || ( apt-get install -qq openssh-client )"
+    - eval $(ssh-agent -s)
+    - ssh-add <(echo "$SSH_PRIVATE_KEY")
+    - mkdir -p ~/.ssh
+    - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'  
+  script:
+    - env > .env && awk '!/^(SSH_PRIVATE_KEY|SSH_USER|SSH_HOST|SSH_AUTH_SOCK|SSH_AGENT_PID|OLDPWD|YARN_VERSION|CI_|CI|FF|GITLAB|PWD|pwd|HOME|HOSTNAME|PATH|SHLVL|NODE_VERSION|OLDPWD YARN_VERSION|_)/' .env > tmp.env && mv tmp.env .env
+    - ssh $SSH_USER@$SSH_HOST "cd /home/ec2-user/game-service && rm .env || true && git pull origin production/v0.5.0 && npm install"
+    - scp .env $SSH_USER@$SSH_HOST:/home/ec2-user/game-service
+    - ssh $SSH_USER@$SSH_HOST "pm2 restart 'game_service_beta'"
+
